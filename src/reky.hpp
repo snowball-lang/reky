@@ -140,6 +140,11 @@ public:
           auto path = driver::get_workspace_path(compiler_ctx, driver::WorkSpaceType::Deps);
           allowed_paths.push_back(path / name);
           cache.add_package(name, version);
+        } else {
+          auto installed_version = cache.cache[name];
+          if (installed_version != version) {
+            error(fmt::format("Package '{}' has conflicting versions '{}' and '{}'", name, installed_version, version));
+          }
         }
       }
     }
