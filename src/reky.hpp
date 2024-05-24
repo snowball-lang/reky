@@ -154,7 +154,7 @@ public:
   }
 
   void update_package_index(const std::filesystem::path& index_path) {
-    utils::Logger::status("Updating", "Rexy package index from " REQUI_PACKAGE_INDEX);
+    utils::Logger::status("Updating", "Reky package index from " REQUI_PACKAGE_INDEX);
     run_git({"clone", REQUI_PACKAGE_INDEX, index_path.string()});
   }
 
