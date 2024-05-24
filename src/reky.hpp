@@ -13,6 +13,10 @@
 #include "compiler/utils/utils.h"
 #include "compiler/utils/logger.h"
 
+#ifndef REQUI_PACKAGE_INDEX 
+#define REQUI_PACKAGE_INDEX "https://github.com/snowball-lang/packages.git"
+#endif
+
 namespace snowball {
 namespace reky {
 
@@ -134,6 +138,43 @@ public:
   }
 
   void installed_if_needed(const std::vector<std::filesystem::path>& allowed_paths) {
+    get_package_index();
+    for (auto& [name, version] : cache.cache) {
+      if (!is_installed(name, version)) {
+        install(name, version);
+      }
+    }
+  }
+
+  void get_package_index() {
+    auto index_path = driver::get_snowball_home() / "packages";
+    if (!std::filesystem::exists(index_path)) {
+      update_package_index(index_path);
+    }
+  }
+
+  void update_package_index(const std::filesystem::path& index_path) {
+    utils::Logger::status("Updating", "Rexy package index from " REQUI_PACKAGE_INDEX);
+    run_git({"clone", REQUI_PACKAGE_INDEX, index_path.string()});
+  }
+
+  int run_git(const std::vector<std::string>& args) {
+    std::string cmd = ctx.git_cmd;
+    for (auto& arg : args) {
+      cmd += " " + arg;
+    }
+    // Silently run the command
+    cmd += " -q";
+    return std::system(cmd.c_str());
+  }
+
+  bool is_installed(const std::string& name, const std::string& version) {
+    auto deps_path = driver::get_workspace_path(compiler_ctx, driver::WorkSpaceType::Deps);
+    return std::filesystem::exists(deps_path / name);
+  }
+
+  void install(const std::string& name, const std::string& version) {
+
   }
 };
 
