@@ -8,6 +8,9 @@
 #include <unordered_map>
 #include <fstream>
 
+#include <fmt/format.h>
+#include <nlohmann/json.hpp>
+
 // Snowball classes
 #include "compiler/ctx.h"
 #include "compiler/utils/utils.h"
@@ -16,6 +19,8 @@
 #ifndef REQUI_PACKAGE_INDEX 
 #define REQUI_PACKAGE_INDEX "https://github.com/snowball-lang/packages.git"
 #endif
+
+using json = nlohmann::json;
 
 namespace snowball {
 namespace reky {
@@ -81,6 +86,13 @@ void error(const std::string& message, unsigned int line, std::string file) {
   exit(1);
 }
 
+void error(const std::string& message) {
+  auto ef = std::make_shared<frontend::SourceFile>();
+  auto err = E(message, frontend::SourceLocation(0,0,0, ef));
+  err.print();
+  exit(1);
+}
+
 std::unordered_map<std::string, std::string> parse_config(const std::filesystem::path& path) {
   std::unordered_map<std::string, std::string> config;
   auto reky_config = path / "deps.reky";
@@ -95,7 +107,7 @@ std::unordered_map<std::string, std::string> parse_config(const std::filesystem:
     if (utils::sw(line, "#") || line.empty()) {
       continue;
     }
-    auto pos = line.find(":");
+    auto pos = line.find("==");
     if (pos == std::string::npos) {
       error("Invalid package format. Must be 'name:version'", 1, reky_config.string());
     }
@@ -120,11 +132,13 @@ public:
     ctx.git_cmd = driver::get_git(compiler_ctx);
   }
 
-  ReckyCache& fetch_dependencies(const std::vector<std::filesystem::path>& allowed_paths) {
+  ReckyCache& fetch_dependencies(std::vector<std::filesystem::path>& allowed_paths) {
     for (auto& path : allowed_paths) {
       auto config = parse_config(path);
       for (auto& [name, version] : config) {
         if (!cache.has_package(name)) {
+          auto path = driver::get_workspace_path(compiler_ctx, driver::WorkSpaceType::Deps);
+          allowed_paths.push_back(path / name);
           cache.add_package(name, version);
         }
       }
@@ -149,13 +163,16 @@ public:
   void get_package_index() {
     auto index_path = driver::get_snowball_home() / "packages";
     if (!std::filesystem::exists(index_path)) {
+      utils::Logger::status("Fetching", "Reky package index from " REQUI_PACKAGE_INDEX);
+      run_git({"clone", REQUI_PACKAGE_INDEX, index_path.string()});
+    } else {
       update_package_index(index_path);
     }
   }
 
   void update_package_index(const std::filesystem::path& index_path) {
     utils::Logger::status("Updating", "Reky package index from " REQUI_PACKAGE_INDEX);
-    run_git({"clone", REQUI_PACKAGE_INDEX, index_path.string()});
+    run_git({"-C", index_path.string(), "pull"});
   }
 
   int run_git(const std::vector<std::string>& args) {
@@ -173,12 +190,44 @@ public:
     return std::filesystem::exists(deps_path / name);
   }
 
-  void install(const std::string& name, const std::string& version) {
+  std::optional<json> get_package_data(const std::string& name, const std::string& version) {
+    auto index_path = driver::get_snowball_home() / "packages" / "pkgs";
+    auto package_path = (index_path / name).string() + ".json";
+    if (!std::filesystem::exists(package_path)) {
+      return std::nullopt;
+    }
+    std::ifstream f(package_path);
+    return json::parse(f);
+  }
 
+  void install(const std::string& name, const std::string& version) {
+    auto package_data = get_package_data(name, version);
+    if (!package_data.has_value()) {
+      error(fmt::format("Package '{}' not found in the package index", name));
+    }
+    std::string install_version;
+    if (version == "latest") {
+      install_version = package_data.value()["versions"].back();
+      cache.cache[name] = install_version;
+    } else {
+      for (auto& v : package_data.value()["versions"]) {
+        if (v == version) {
+          install_version = v;
+          break;
+        }
+      }
+    }
+    if (install_version.empty()) {
+      error(fmt::format("Version '{}' not found for package '{}'", version, name));
+    }
+    auto deps_path = driver::get_workspace_path(compiler_ctx, driver::WorkSpaceType::Deps);
+    auto package_path = deps_path / name;
+    utils::Logger::status("Download", fmt::format("{}@{}", name, install_version));
+    run_git({"clone", package_data.value()["download_url"], package_path.string(), "--branch", install_version, "--depth", "1"});
   }
 };
 
-void fetch_dependencies(const Ctx& ctx, const std::vector<std::filesystem::path>& allowed_paths) {
+void fetch_dependencies(const Ctx& ctx, std::vector<std::filesystem::path>& allowed_paths) {
   RekyManager manager(ctx);
   auto cache = manager.fetch_dependencies(allowed_paths);
   cache.save_cache(driver::get_workspace_path(ctx, driver::WorkSpaceType::Deps));
