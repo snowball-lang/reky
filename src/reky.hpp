@@ -109,15 +109,15 @@ std::unordered_map<std::string, std::string> parse_config(const std::filesystem:
     }
     auto pos = line.find("==");
     if (pos == std::string::npos) {
-      error("Invalid package format. Must be 'name:version'", 1, reky_config.string());
+      error("Invalid package format. Must be 'name==version'", 1, reky_config.string());
     }
     auto name = line.substr(0, pos);
-    auto version = line.substr(pos + 1);
+    auto version = line.substr(pos + 2);
     config[name] = version;
     if (version.empty()) {
-      error("Invalid version format. Must be 'name:version'", 1, reky_config.string());
+      error("Invalid version format. Must be 'name==version'", 1, reky_config.string());
     } else if (name.empty()) {
-      error("Invalid name format. Must be 'name:version'", 1, reky_config.string());
+      error("Invalid name format. Must be 'name==version'", 1, reky_config.string());
     }
   }
   return config;
