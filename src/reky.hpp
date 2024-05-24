@@ -211,15 +211,10 @@ public:
       error(fmt::format("Package '{}' not found in the package index", name));
     }
     std::string install_version;
-    if (version == "latest") {
-      install_version = package_data.value()["versions"].back();
-      cache.cache[name] = install_version;
-    } else {
-      for (auto& v : package_data.value()["versions"]) {
-        if (v == version) {
-          install_version = v;
-          break;
-        }
+    for (auto& v : package_data.value()["versions"]) {
+      if (v == version) {
+        install_version = v;
+        break;
       }
     }
     if (install_version.empty()) {
