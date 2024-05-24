@@ -138,6 +138,7 @@ public:
       for (auto& [name, version] : config) {
         if (!cache.has_package(name)) {
           auto path = driver::get_workspace_path(compiler_ctx, driver::WorkSpaceType::Deps);
+          path = std::filesystem::absolute(path);
           allowed_paths.push_back(path / name);
           cache.add_package(name, version);
         } else {
@@ -222,7 +223,7 @@ public:
     }
     auto deps_path = driver::get_workspace_path(compiler_ctx, driver::WorkSpaceType::Deps);
     auto package_path = deps_path / name;
-    utils::Logger::status("Download", fmt::format("{}@{}", name, install_version));
+    utils::Logger::status("Download", fmt::format("{}@{} into {}", name, install_version, package_path.string()));
     run_git({"clone", package_data.value()["download_url"], package_path.string(), "--branch", install_version, "--depth", "1"});
   }
 };
