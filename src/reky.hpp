@@ -31,27 +31,44 @@ struct RekyContext final {
   std::vector<RequiredPackage> required_packages;
 };
 
-std::unordered_map<std::string, std::string> parse_config(const std::filesystem::path& path);
+struct ReckyCache final {
+  std::unordered_map<std::string, std::string> cache;
+  bool has_changed = false;
 
-class RekyManager final {
-  RekyContext ctx;
-  const Ctx& compiler_ctx;
-public:
-  RekyManager(const Ctx& compiler_ctx) : compiler_ctx(compiler_ctx) {
-    ctx.git_cmd = driver::get_git(compiler_ctx);
-  }
-
-  void fetch_dependencies(const std::vector<std::filesystem::path>& allowed_paths) {
-    for (auto& path : allowed_paths) {
-      auto config = parse_config(path);
+  void save(std::ofstream& file) {
+    // Get the largest key size
+    size_t max_key_size = 0;
+    for (auto& [key, value] : cache) {
+      max_key_size = std::max(max_key_size, key.size());
+    }
+    // Write the cache to the file
+    for (auto& [key, value] : cache) {
+      file << key;
+      for (size_t i = 0; i < max_key_size - key.size(); i++) {
+        file << " ";
+      }
+      file << " :  " << value << std::endl;
     }
   }
-};
 
-void fetch_dependencies(const Ctx& ctx, const std::vector<std::filesystem::path>& allowed_paths) {
-  RekyManager manager(ctx);
-  manager.fetch_dependencies(allowed_paths);
-}
+  void save_cache(const std::filesystem::path& root) {
+    std::ofstream file(root / ".reky_cache");
+    save(file);
+  }
+
+  bool has_package(const std::string& name) {
+    return cache.find(name) != cache.end();
+  }
+
+  void add_package(const std::string& name, const std::string& version) {
+    cache[name] = version;
+    has_changed = true;
+  }
+
+  void reset_changed() {
+    has_changed = false;
+  }
+};
 
 void error(const std::string& message, unsigned int line, std::string file) {
   auto efile = std::make_shared<frontend::SourceFile>(file);
@@ -70,7 +87,7 @@ std::unordered_map<std::string, std::string> parse_config(const std::filesystem:
   std::string line;
   // Classic requirements.txt like format
   while (std::getline(file, line)) {
-    line = utils::strip(line);
+    utils::strip(line);
     if (utils::sw(line, "#") || line.empty()) {
       continue;
     }
@@ -88,6 +105,42 @@ std::unordered_map<std::string, std::string> parse_config(const std::filesystem:
     }
   }
   return config;
+}
+
+class RekyManager final {
+  RekyContext ctx;
+  ReckyCache cache;
+  const Ctx& compiler_ctx;
+public:
+  RekyManager(const Ctx& compiler_ctx) : compiler_ctx(compiler_ctx) {
+    ctx.git_cmd = driver::get_git(compiler_ctx);
+  }
+
+  ReckyCache& fetch_dependencies(const std::vector<std::filesystem::path>& allowed_paths) {
+    for (auto& path : allowed_paths) {
+      auto config = parse_config(path);
+      for (auto& [name, version] : config) {
+        if (!cache.has_package(name)) {
+          cache.add_package(name, version);
+        }
+      }
+    }
+    if (cache.has_changed) {
+      installed_if_needed(allowed_paths);
+      cache.reset_changed();
+      return fetch_dependencies(allowed_paths);
+    }
+    return cache;
+  }
+
+  void installed_if_needed(const std::vector<std::filesystem::path>& allowed_paths) {
+  }
+};
+
+void fetch_dependencies(const Ctx& ctx, const std::vector<std::filesystem::path>& allowed_paths) {
+  RekyManager manager(ctx);
+  auto cache = manager.fetch_dependencies(allowed_paths);
+  cache.save_cache(driver::get_workspace_path(ctx, driver::WorkSpaceType::Deps));
 }
 
 }
