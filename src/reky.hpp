@@ -52,7 +52,7 @@ struct ReckyCache final {
   std::unordered_map<std::string, std::string> cache;
   bool has_changed = false;
 
-  void save(std::ofstream& file) {
+  void save(std::ostream& file) {
     // Get the largest key size
     size_t max_key_size = 0;
     for (auto& [key, value] : cache) {
