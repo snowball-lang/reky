@@ -16,8 +16,16 @@
 #include "compiler/utils/utils.h"
 #include "compiler/utils/logger.h"
 
-#ifndef REQUI_PACKAGE_INDEX 
-#define REQUI_PACKAGE_INDEX "https://github.com/snowball-lang/packages.git"
+#ifndef REKY_PACKAGE_INDEX 
+#define REKY_PACKAGE_INDEX "https://github.com/snowball-lang/packages.git"
+#endif
+
+#ifndef REKY_CACHE_FILE
+#define REKY_CACHE_FILE ".reky_cache"
+#endif
+
+#ifndef REKY_DEFAULT_FILE
+#define REKY_DEFAULT_FILE "deps.reky"
 #endif
 
 using json = nlohmann::json;
@@ -36,8 +44,7 @@ struct RequiredPackage final {
 
 struct RekyContext final {
   std::string git_cmd;
-  std::vector<std::filesystem::path> projects; // List of paths to search deps
-  std::vector<RequiredPackage> required_packages;
+  bool first_run = true;
 };
 
 struct ReckyCache final {
@@ -56,12 +63,12 @@ struct ReckyCache final {
       for (size_t i = 0; i < max_key_size - key.size(); i++) {
         file << " ";
       }
-      file << " :  " << value << std::endl;
+      file << " ==  " << value << std::endl;
     }
   }
 
   void save_cache(const std::filesystem::path& root) {
-    std::ofstream file(root / ".reky_cache");
+    std::ofstream file(root / REKY_CACHE_FILE);
     save(file);
   }
 
@@ -83,7 +90,6 @@ void error(const std::string& message, unsigned int line, std::string file) {
   auto efile = std::make_shared<frontend::SourceFile>(file);
   auto err = E(message, frontend::SourceLocation(line, 1, 1, efile));
   err.print();
-  exit(1);
 }
 
 void error(const std::string& message) {
@@ -93,14 +99,16 @@ void error(const std::string& message) {
   exit(1);
 }
 
-std::unordered_map<std::string, std::string> parse_config(const std::filesystem::path& path) {
+std::unordered_map<std::string, std::string> parse_config(const std::filesystem::path& path, bool for_cache = false) {
   std::unordered_map<std::string, std::string> config;
-  auto reky_config = path / "deps.reky";
+  auto reky_config = path / (!for_cache ? REKY_DEFAULT_FILE : REKY_CACHE_FILE);
   if (!std::filesystem::exists(reky_config)) {
     return config;
   }
   std::ifstream file(reky_config);
   std::string line;
+  unsigned int line_number = 1;
+  bool has_error = false;
   // Classic requirements.txt like format
   while (std::getline(file, line)) {
     utils::strip(line);
@@ -109,16 +117,26 @@ std::unordered_map<std::string, std::string> parse_config(const std::filesystem:
     }
     auto pos = line.find("==");
     if (pos == std::string::npos) {
-      error("Invalid package format. Must be 'name==version'", 1, reky_config.string());
+      error("Invalid package format. Must be 'name==version'", line_number, reky_config.string());
+      has_error = true;
+      continue;
     }
     auto name = line.substr(0, pos);
     auto version = line.substr(pos + 2);
     config[name] = version;
     if (version.empty()) {
-      error("Invalid version format. Must be 'name==version'", 1, reky_config.string());
+      error("Invalid version format. Must be 'name==version'", line_number, reky_config.string());
+      has_error = true;
+      continue;
     } else if (name.empty()) {
-      error("Invalid name format. Must be 'name==version'", 1, reky_config.string());
+      error("Invalid name format. Must be 'name==version'", line_number, reky_config.string());
+      has_error = true;
+      continue;
     }
+    line_number++;
+  }
+  if (has_error) {
+    exit(1);
   }
   return config;
 }
@@ -133,6 +151,10 @@ public:
   }
 
   ReckyCache& fetch_dependencies(std::vector<std::filesystem::path>& allowed_paths) {
+    if (ctx.first_run) {
+      cache = fetch_cache(allowed_paths);
+      ctx.first_run = false;
+    }
     for (auto& path : allowed_paths) {
       auto config = parse_config(path);
       for (auto& [name, version] : config) {
@@ -150,14 +172,14 @@ public:
       }
     }
     if (cache.has_changed) {
-      installed_if_needed(allowed_paths);
+      installed_if_needed();
       cache.reset_changed();
       return fetch_dependencies(allowed_paths);
     }
     return cache;
   }
 
-  void installed_if_needed(const std::vector<std::filesystem::path>& allowed_paths) {
+  void installed_if_needed() {
     get_package_index();
     for (auto& [name, version] : cache.cache) {
       if (!is_installed(name, version)) {
@@ -170,7 +192,7 @@ public:
     auto index_path = driver::get_snowball_home() / "packages";
     if (!std::filesystem::exists(index_path)) {
       utils::Logger::status("Fetching", "Reky package index");
-      run_git({"clone", REQUI_PACKAGE_INDEX, index_path.string()});
+      run_git({"clone", REKY_PACKAGE_INDEX, index_path.string()});
     } else {
       update_package_index(index_path);
     }
@@ -225,6 +247,19 @@ public:
     auto package_path = deps_path / name;
     utils::Logger::status("Download", fmt::format("{}@{}", name, install_version));
     run_git({"clone", package_data.value()["download_url"], package_path.string(), "--branch", install_version, "--depth", "1"});
+  }
+
+  ReckyCache fetch_cache(std::vector<std::filesystem::path>& allowed_paths) {
+    auto path = driver::get_workspace_path(compiler_ctx, driver::WorkSpaceType::Deps);
+    auto config = parse_config(path, true);
+    ReckyCache cache;
+    for (auto& [name, version] : config) {
+      auto dep_path = std::filesystem::absolute(path / name);
+      allowed_paths.push_back(dep_path);
+      cache.add_package(name, version);
+    }
+    cache.reset_changed();
+    return cache;
   }
 };
 
