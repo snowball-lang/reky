@@ -15,6 +15,7 @@
 #include "compiler/ctx.h"
 #include "compiler/utils/utils.h"
 #include "compiler/utils/logger.h"
+#include "compiler/backend/drivers.h"
 
 #ifndef REKY_PACKAGE_INDEX 
 #define REKY_PACKAGE_INDEX "https://github.com/snowball-lang/packages.git"
@@ -263,10 +264,11 @@ public:
   }
 };
 
-void fetch_dependencies(const Ctx& ctx, std::vector<std::filesystem::path>& allowed_paths) {
+ReckyCache fetch_dependencies(const Ctx& ctx, std::vector<std::filesystem::path>& allowed_paths) {
   RekyManager manager(ctx);
   auto cache = manager.fetch_dependencies(allowed_paths);
   cache.save_cache(driver::get_workspace_path(ctx, driver::WorkSpaceType::Deps));
+  return cache;
 }
 
 }
