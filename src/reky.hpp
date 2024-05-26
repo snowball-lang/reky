@@ -26,7 +26,7 @@
 #endif
 
 #ifndef REKY_DEFAULT_FILE
-#define REKY_DEFAULT_FILE "deps.reky"
+#define REKY_DEFAULT_FILE "sn.reky"
 #endif
 
 using json = nlohmann::json;
