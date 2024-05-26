@@ -223,7 +223,7 @@ public:
     }
     auto deps_path = driver::get_workspace_path(compiler_ctx, driver::WorkSpaceType::Deps);
     auto package_path = deps_path / name;
-    utils::Logger::status("Download", fmt::format("{}@{} into {}", name, install_version, package_path.string()));
+    utils::Logger::status("Download", fmt::format("{}@{}", name, install_version));
     run_git({"clone", package_data.value()["download_url"], package_path.string(), "--branch", install_version, "--depth", "1"});
   }
 };
