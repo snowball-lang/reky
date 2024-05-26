@@ -169,7 +169,7 @@ public:
   void get_package_index() {
     auto index_path = driver::get_snowball_home() / "packages";
     if (!std::filesystem::exists(index_path)) {
-      utils::Logger::status("Fetching", "Reky package index from " REQUI_PACKAGE_INDEX);
+      utils::Logger::status("Fetching", "Reky package index");
       run_git({"clone", REQUI_PACKAGE_INDEX, index_path.string()});
     } else {
       update_package_index(index_path);
@@ -177,7 +177,7 @@ public:
   }
 
   void update_package_index(const std::filesystem::path& index_path) {
-    utils::Logger::status("Updating", "Reky package index from " REQUI_PACKAGE_INDEX);
+    utils::Logger::status("Updating", "Reky package index");
     run_git({"-C", index_path.string(), "pull"});
   }
 
