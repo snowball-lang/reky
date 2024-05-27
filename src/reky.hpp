@@ -247,7 +247,7 @@ public:
     auto deps_path = driver::get_workspace_path(compiler_ctx, driver::WorkSpaceType::Deps);
     auto package_path = deps_path / name;
     utils::Logger::status("Download", fmt::format("{}@{}", name, install_version));
-    run_git({"clone", package_data.value()["download_url"], package_path.string(), "--branch", install_version, "--depth", "1"});
+    run_git({"clone", "-c", "advice.detachedHead=false", package_data.value()["download_url"], package_path.string(), "--branch", install_version, "--depth", "1"});
   }
 
   ReckyCache fetch_cache(std::vector<std::filesystem::path>& allowed_paths) {
