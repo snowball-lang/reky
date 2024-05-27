@@ -46,6 +46,7 @@ struct RequiredPackage final {
 struct RekyContext final {
   std::string git_cmd;
   bool first_run = true;
+  bool index_fetched = false;
 };
 
 struct ReckyCache final {
@@ -190,7 +191,11 @@ public:
   }
 
   void get_package_index() {
+    if (ctx.index_fetched) {
+      return;
+    }
     auto index_path = driver::get_snowball_home() / "packages";
+    ctx.index_fetched = true;
     if (!std::filesystem::exists(index_path)) {
       utils::Logger::status("Fetching", "Reky package index");
       run_git({"clone", REKY_PACKAGE_INDEX, index_path.string()});
