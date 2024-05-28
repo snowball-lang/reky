@@ -13,6 +13,7 @@
 
 // Snowball classes
 #include "compiler/ctx.h"
+#include "compiler/utils/hash.h"
 #include "compiler/utils/utils.h"
 #include "compiler/utils/logger.h"
 #include "compiler/backend/drivers.h"
@@ -143,9 +144,14 @@ std::unordered_map<std::string, std::string> parse_config(const std::filesystem:
   return config;
 }
 
+struct DepsGraph final {
+  std::map<std::string, std::vector<std::string>> graph;
+};
+
 class RekyManager final {
   RekyContext ctx;
   ReckyCache cache;
+  DepsGraph graph;
   const Ctx& compiler_ctx;
 public:
   RekyManager(const Ctx& compiler_ctx) : compiler_ctx(compiler_ctx) {
@@ -158,12 +164,20 @@ public:
       ctx.first_run = false;
     }
     for (auto& path : allowed_paths) {
+      auto path_filename = path.filename().string();
+      if (path_filename.empty()) {
+        // The main crate path is empty
+        path_filename = path.parent_path().filename().string();
+      }
+      path_filename = get_name_from_hash(path_filename);
       auto config = parse_config(path);
+      graph.graph[path_filename] = std::vector<std::string>();
       for (auto& [name, version] : config) {
+        graph.graph[path_filename].push_back(name);
         if (!cache.has_package(name)) {
           auto path = driver::get_workspace_path(compiler_ctx, driver::WorkSpaceType::Deps);
           path = std::filesystem::absolute(path);
-          allowed_paths.push_back(path / name);
+          allowed_paths.push_back(path / get_dep_folder(name));
           cache.add_package(name, version);
         } else {
           auto installed_version = cache.cache[name];
@@ -179,6 +193,18 @@ public:
       return fetch_dependencies(allowed_paths);
     }
     return cache;
+  }
+
+  std::string get_name_from_hash(const std::string& hash) {
+    auto path = driver::get_workspace_path(compiler_ctx, driver::WorkSpaceType::Deps);
+    path /= hash;
+    std::ifstream ifs(path.string() + ".name");
+    if (ifs.is_open()) {
+      std::string content((std::istreambuf_iterator<char>(ifs)),
+                          (std::istreambuf_iterator<char>()));
+      return content;
+    }
+    return hash;
   }
 
   void installed_if_needed() {
@@ -218,10 +244,14 @@ public:
     cmd += " -q";
     return std::system(cmd.c_str());
   }
+  
+  static std::string get_dep_folder(const std::string& name) {
+    return utils::hash::hashString(name);
+  }
 
   bool is_installed(const std::string& name, const std::string& version) {
     auto deps_path = driver::get_workspace_path(compiler_ctx, driver::WorkSpaceType::Deps);
-    return std::filesystem::exists(deps_path / name);
+    return std::filesystem::exists(deps_path / get_dep_folder(name));
   }
 
   std::optional<json> get_package_data(const std::string& name, const std::string& version) {
@@ -250,30 +280,46 @@ public:
       error(fmt::format("Version '{}' not found for package '{}'", version, name));
     }
     auto deps_path = driver::get_workspace_path(compiler_ctx, driver::WorkSpaceType::Deps);
-    auto package_path = deps_path / name;
+    auto package_path = deps_path / get_dep_folder(name);
+    std::ofstream f(package_path.string() + ".name");
+    f << name;
+    f.close();
     utils::Logger::status("Download", fmt::format("{}@{}", name, install_version));
     run_git({"clone", "-c", "advice.detachedHead=false", package_data.value()["download_url"], package_path.string(), "--branch", install_version, "--depth", "1"});
   }
 
   ReckyCache fetch_cache(std::vector<std::filesystem::path>& allowed_paths) {
-    auto path = driver::get_workspace_path(compiler_ctx, driver::WorkSpaceType::Deps);
-    auto config = parse_config(path, true);
+    auto reky_path = driver::get_workspace_path(compiler_ctx, driver::WorkSpaceType::Reky);
+    auto deps_path = driver::get_workspace_path(compiler_ctx, driver::WorkSpaceType::Deps);
+    auto config = parse_config(reky_path, true);
     ReckyCache cache;
     for (auto& [name, version] : config) {
-      auto dep_path = std::filesystem::absolute(path / name);
+      auto dep_path = std::filesystem::absolute(deps_path / get_dep_folder(name));
       allowed_paths.push_back(dep_path);
       cache.add_package(name, version);
     }
     cache.reset_changed();
     return cache;
   }
+
+  void export_dot(std::ofstream& file) {
+    file << "digraph G {" << std::endl;
+    file << "  label = \"Reky Dependencies\";" << std::endl;
+    for (auto& [name, deps] : graph.graph) {
+      for (auto& dep : deps) {
+        file << fmt::format("  \"{}\" -> \"{}\" [arrowhead = diamond];", name, dep) << std::endl;
+      }
+    }
+    file << "}" << std::endl;
+    file.close();
+  }
 };
 
-ReckyCache fetch_dependencies(const Ctx& ctx, std::vector<std::filesystem::path>& allowed_paths) {
-  RekyManager manager(ctx);
-  auto cache = manager.fetch_dependencies(allowed_paths);
-  cache.save_cache(driver::get_workspace_path(ctx, driver::WorkSpaceType::Deps));
-  return cache;
+RekyManager* fetch_dependencies(const Ctx& ctx, std::vector<std::filesystem::path>& allowed_paths) {
+  auto manager = new RekyManager(ctx);
+  auto cache = manager->fetch_dependencies(allowed_paths);
+  cache.save_cache(driver::get_workspace_path(ctx, driver::WorkSpaceType::Reky));
+  return manager;
 }
 
 }
