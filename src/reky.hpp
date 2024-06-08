@@ -89,7 +89,7 @@ struct ReckyCache final {
   }
 };
 
-[[noreturn]] void error(const std::string& message, unsigned int line, std::string file) {
+void error(const std::string& message, unsigned int line, std::string file) {
   auto efile = std::make_shared<frontend::SourceFile>(file);
   auto err = E(message, frontend::SourceLocation(line, 1, 1, efile));
   err.print();
