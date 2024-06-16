@@ -286,6 +286,7 @@ public:
     f.close();
     utils::Logger::status("Download", fmt::format("{}@{}", name, install_version));
     run_git({"clone", "-c", "advice.detachedHead=false", package_data.value()["download_url"], package_path.string(), "--branch", install_version, "--depth", "1"});
+    std::filesystem::remove(package_path / ".git");
   }
 
   ReckyCache fetch_cache(std::vector<std::filesystem::path>& allowed_paths) {
