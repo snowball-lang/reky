@@ -66,7 +66,7 @@ struct ReckyCache final {
       for (size_t i = 0; i < max_key_size - key.size(); i++) {
         file << " ";
       }
-      file << " ==  " << value << std::endl;
+      file << " == " << value << std::endl;
     }
   }
 
